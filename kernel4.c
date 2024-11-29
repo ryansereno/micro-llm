@@ -1,12 +1,15 @@
-// #include <avr/io.h>
+#include <SD.h>
+#include <SPI.h>
 #include <stdint.h>
-// #include <util/delay.h>
+#include <string.h>
 
-#define BAUD 9600
 #define F_CPU 16000000UL
+#define BAUD 9600
 #define UBRR_VALUE ((F_CPU / (BAUD * 16UL)) - 1)
 
-// UART serial communication registers
+#define CS_PIN 4
+
+// UART Registers
 #define UBRR0H (*((volatile uint8_t *)0xC5))
 #define UBRR0L (*((volatile uint8_t *)0xC4))
 #define UCSR0A (*((volatile uint8_t *)0xC0))
@@ -14,15 +17,10 @@
 #define UCSR0C (*((volatile uint8_t *)0xC2))
 #define UDR0 (*((volatile uint8_t *)0xC6))
 
-// UCSR0B bits
+// UART Bits
 #define RXEN0 4
 #define TXEN0 3
-
-// UCSR0C bits
 #define UCSZ00 1
-
-// UCSR0A bits
-#define RXC0 7
 #define UDRE0 5
 
 void uart_init() {
@@ -61,15 +59,28 @@ void uart_print_number(int16_t num) {
   uart_transmit('\n');
 }
 
-void matrix_multiply(int8_t *A, int8_t *B, int16_t *C, uint8_t rows_A,
-                     uint8_t cols_A, uint8_t cols_B) {
-  for (uint8_t i = 0; i < rows_A; i++) {
-    for (uint8_t j = 0; j < cols_B; j++) {
-      int32_t sum = 0;
-      for (uint8_t k = 0; k < cols_A; k++) {
-        sum += (int32_t)A[i * cols_A + k] * B[k * cols_B + j];
+void matrix_multiply(File *A, File *B, File *C, uint16_t rows_A,
+                     uint16_t cols_A, uint16_t cols_B) {
+  int8_t a_val, b_val;
+  int32_t product;
+
+  File temp = SD.open("temp.bin", FILE_WRITE);
+
+  for (uint16_t i = 0; i < rows_A; i++) {
+    for (uint16_t j = 0; j < cols_B; j++) {
+      for (uint16_t k = 0; k < cols_A; k++) {
+
+        A->seek((i * cols_A + k) * sizeof(int8_t));
+        B->seek((k * cols_B + j) * sizeof(int8_t));
+
+        A->read(&a_val, sizeof(int8_t));
+        B->read(&b_val, sizeof(int8_t));
+
+        product =
+            (int32_t)a_val *
+            b_val; // cast to int32 BEFORE multiplication, to avoid overflow
+        temp.write((uint8_t *)&product, sizeof(int32_t));
       }
-      C[i * cols_B + j] = (int16_t)sum;
     }
   }
 }
@@ -77,29 +88,15 @@ void matrix_multiply(int8_t *A, int8_t *B, int16_t *C, uint8_t rows_A,
 int main(void) {
   uart_init();
 
+  if (!SD.begin(CS_PIN)) {
+    while (1)
+      ;
+  }
+
+  multiply_matrices();
+
   while (1) {
-    // Receive matrix size
-    uint8_t rows_A = uart_receive();
-    uint8_t cols_A = uart_receive();
-    uint8_t cols_B = uart_receive();
-
-    // Receive matrices A and B
-    int8_t A[rows_A * cols_A], B[cols_A * cols_B];
-    int16_t C[rows_A * cols_B];
-    for (uint16_t i = 0; i < rows_A * cols_A; i++) {
-      A[i] = (int8_t)uart_receive() - 128;
-    }
-    for (uint16_t i = 0; i < cols_A * cols_B; i++) {
-      B[i] = (int8_t)uart_receive() - 128;
-    }
-
-    // Multiply matrices
-    matrix_multiply(A, B, C, rows_A, cols_A, cols_B);
-
-    // Send result matrix C
-    for (uint16_t i = 0; i < rows_A * cols_B; i++) {
-      uart_print_number(C[i]);
-    }
+    // Main program loop
   }
 
   return 0;

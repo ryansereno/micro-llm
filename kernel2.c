@@ -5,6 +5,7 @@
 #define BAUD 9600
 #define F_CPU 16000000UL
 #define UBRR_VALUE ((F_CPU / (BAUD * 16UL)) - 1)
+#define MAX_SIZE 16 // Maximum matrix size
 
 // UART serial communication registers
 #define UBRR0H (*((volatile uint8_t *)0xC5))
@@ -44,32 +45,23 @@ uint8_t uart_receive() {
   return UDR0;
 }
 
-// send string over uart
 void uart_print_number(int16_t num) {
-
-  // Longest 16-bit signed integer is -32768
-  // 6 chars for the digits and sign
-  // 1 character for the null terminator ('\0')
   char buffer[7];
-
-  // convert base 10 number to a string and place in buffer
   itoa(num, buffer, 10);
-
   for (char *p = buffer; *p; p++) {
     uart_transmit(*p);
   }
-  uart_transmit('\n');
+  uart_transmit('\n'); // Send newline
 }
 
-void matrix_multiply(int8_t *A, int8_t *B, int16_t *C, uint8_t rows_A,
-                     uint8_t cols_A, uint8_t cols_B) {
-  for (uint8_t i = 0; i < rows_A; i++) {
-    for (uint8_t j = 0; j < cols_B; j++) {
+void matrix_multiply(int8_t *A, int8_t *B, int16_t *C, uint8_t size) {
+  for (uint8_t i = 0; i < size; i++) {
+    for (uint8_t j = 0; j < size; j++) {
       int32_t sum = 0;
-      for (uint8_t k = 0; k < cols_A; k++) {
-        sum += (int32_t)A[i * cols_A + k] * B[k * cols_B + j];
+      for (uint8_t k = 0; k < size; k++) {
+        sum += (int32_t)A[i * size + k] * B[k * size + j];
       }
-      C[i * cols_B + j] = (int16_t)sum;
+      C[i * size + j] = (int16_t)sum;
     }
   }
 }
@@ -79,25 +71,27 @@ int main(void) {
 
   while (1) {
     // Receive matrix size
-    uint8_t rows_A = uart_receive();
-    uint8_t cols_A = uart_receive();
-    uint8_t cols_B = uart_receive();
+    uint8_t size = uart_receive();
+    if (size > MAX_SIZE) {
+      uart_print_number(-1); // Error: size too large
+      continue;
+    }
 
     // Receive matrices A and B
-    int8_t A[rows_A * cols_A], B[cols_A * cols_B];
-    int16_t C[rows_A * cols_B];
-    for (uint16_t i = 0; i < rows_A * cols_A; i++) {
+    int8_t A[MAX_SIZE * MAX_SIZE], B[MAX_SIZE * MAX_SIZE];
+    int16_t C[MAX_SIZE * MAX_SIZE];
+    for (uint16_t i = 0; i < size * size; i++) {
       A[i] = (int8_t)uart_receive() - 128;
     }
-    for (uint16_t i = 0; i < cols_A * cols_B; i++) {
+    for (uint16_t i = 0; i < size * size; i++) {
       B[i] = (int8_t)uart_receive() - 128;
     }
 
     // Multiply matrices
-    matrix_multiply(A, B, C, rows_A, cols_A, cols_B);
+    matrix_multiply(A, B, C, size);
 
     // Send result matrix C
-    for (uint16_t i = 0; i < rows_A * cols_B; i++) {
+    for (uint16_t i = 0; i < size * size; i++) {
       uart_print_number(C[i]);
     }
   }
